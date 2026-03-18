@@ -62,6 +62,26 @@ func (m *MongoDBCollector) baseAttrs() map[string]string {
 func (m *MongoDBCollector) Collect(ctx context.Context) ([]DBMetric, error) {
 	var metrics []DBMetric
 
+	// Collect server version for instance metadata
+	adminDB := m.client.Database("admin")
+	verResult := adminDB.RunCommand(ctx, bson.D{{Key: "serverStatus", Value: 1}})
+	var verDoc bson.M
+	if err := verResult.Decode(&verDoc); err == nil {
+		if version, ok := verDoc["version"].(string); ok {
+			metrics = append(metrics, DBMetric{
+				Name:  "db.instance.info",
+				Value: 1,
+				Unit:  "1",
+				Attributes: map[string]string{
+					"db.system":   "mongodb",
+					"db.version":  version,
+					"db.name":     m.name,
+					"db.instance": m.instance,
+				},
+			})
+		}
+	}
+
 	ss, err := m.collectServerStatus(ctx)
 	if err != nil {
 		log.Printf("WARN: mongodb %s serverStatus: %v", m.name, err)

@@ -52,6 +52,9 @@ func main() {
 		log.Fatal("DB_CONNECTIONS must contain at least one connection")
 	}
 
+	cloudProvider := envOr("CLOUD_PROVIDER", "")
+	cloudRegion := envOr("CLOUD_REGION", "")
+
 	resourceAttrs := map[string]string{
 		"service.name":    appID,
 		"deployment.environment": env,
@@ -61,6 +64,12 @@ func main() {
 	}
 	if projectID != "" {
 		resourceAttrs["obtrace.project_id"] = projectID
+	}
+	if cloudProvider != "" {
+		resourceAttrs["cloud.provider"] = cloudProvider
+	}
+	if cloudRegion != "" {
+		resourceAttrs["cloud.region"] = cloudRegion
 	}
 
 	// Build collectors

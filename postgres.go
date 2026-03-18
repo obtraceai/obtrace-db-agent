@@ -58,6 +58,21 @@ func (p *PostgresCollector) baseAttrs() map[string]string {
 func (p *PostgresCollector) Collect(ctx context.Context) ([]DBMetric, error) {
 	var metrics []DBMetric
 
+	// Collect server version for instance metadata
+	var version string
+	_ = p.pool.QueryRow(ctx, "SHOW server_version").Scan(&version)
+	metrics = append(metrics, DBMetric{
+		Name:  "db.instance.info",
+		Value: 1,
+		Unit:  "1",
+		Attributes: map[string]string{
+			"db.system":   "postgres",
+			"db.version":  version,
+			"db.name":     p.name,
+			"db.instance": p.instance,
+		},
+	})
+
 	m, err := p.collectStatDatabase(ctx)
 	if err != nil {
 		log.Printf("WARN: postgres %s pg_stat_database: %v", p.name, err)

@@ -52,12 +52,31 @@ func (m *MySQLCollector) baseAttrs() map[string]string {
 }
 
 func (m *MySQLCollector) Collect(ctx context.Context) ([]DBMetric, error) {
+	var allMetrics []DBMetric
+
+	// Collect server version for instance metadata
+	var version string
+	if err := m.db.QueryRowContext(ctx, "SELECT VERSION()").Scan(&version); err == nil {
+		allMetrics = append(allMetrics, DBMetric{
+			Name:  "db.instance.info",
+			Value: 1,
+			Unit:  "1",
+			Attributes: map[string]string{
+				"db.system":   "mysql",
+				"db.version":  version,
+				"db.name":     m.name,
+				"db.instance": m.instance,
+			},
+		})
+	}
+
 	metrics, err := m.collectGlobalStatus(ctx)
 	if err != nil {
 		log.Printf("WARN: mysql %s SHOW GLOBAL STATUS: %v", m.name, err)
-		return nil, err
+		return allMetrics, err
 	}
-	return metrics, nil
+	allMetrics = append(allMetrics, metrics...)
+	return allMetrics, nil
 }
 
 func (m *MySQLCollector) collectGlobalStatus(ctx context.Context) ([]DBMetric, error) {

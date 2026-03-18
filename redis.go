@@ -56,6 +56,24 @@ func (r *RedisCollector) baseAttrs() map[string]string {
 func (r *RedisCollector) Collect(ctx context.Context) ([]DBMetric, error) {
 	var metrics []DBMetric
 
+	// Collect server version for instance metadata
+	serverInfo, verErr := r.client.Info(ctx, "server").Result()
+	if verErr == nil {
+		parsed := parseRedisInfo(serverInfo)
+		version := parsed["redis_version"]
+		metrics = append(metrics, DBMetric{
+			Name:  "db.instance.info",
+			Value: 1,
+			Unit:  "1",
+			Attributes: map[string]string{
+				"db.system":   "redis",
+				"db.version":  version,
+				"db.name":     r.name,
+				"db.instance": r.instance,
+			},
+		})
+	}
+
 	m, err := r.collectInfo(ctx)
 	if err != nil {
 		log.Printf("WARN: redis %s INFO: %v", r.name, err)
