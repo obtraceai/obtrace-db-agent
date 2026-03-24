@@ -11,7 +11,7 @@ permissions:
 jobs:
   automerge:
     if: github.actor == 'dependabot[bot]'
-    runs-on: ubuntu-latest
+    runs-on: obtrace-runners
     steps:
       - name: Fetch Dependabot metadata
         id: meta

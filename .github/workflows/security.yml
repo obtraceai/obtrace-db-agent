@@ -9,13 +9,13 @@ on:
 jobs:
   dependency-review:
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: obtrace-runners
     steps:
       - uses: actions/checkout@v6
       - uses: actions/dependency-review-action@v4
 
   audit:
-    runs-on: ubuntu-latest
+    runs-on: obtrace-runners
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
