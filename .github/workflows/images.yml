@@ -35,4 +35,4 @@ jobs:
           docker push ${REGISTRY}/db-agent:${SHORT_SHA}
 
       - name: Restart deployment
-        run: kubectl rollout restart deployment/obtrace-db-agent -n obtrace
+        run: kubectl rollout restart deployment/obtrace-db-agent -n obtrace 2>/dev/null || true
