@@ -59,8 +59,8 @@ func (m *MongoDBCollector) baseAttrs() map[string]string {
 	}
 }
 
-func (m *MongoDBCollector) Collect(ctx context.Context) ([]DBMetric, error) {
-	var metrics []DBMetric
+func (m *MongoDBCollector) Collect(ctx context.Context) ([]Metric, error) {
+	var metrics []Metric
 
 	// Collect server version for instance metadata
 	adminDB := m.client.Database("admin")
@@ -68,7 +68,7 @@ func (m *MongoDBCollector) Collect(ctx context.Context) ([]DBMetric, error) {
 	var verDoc bson.M
 	if err := verResult.Decode(&verDoc); err == nil {
 		if version, ok := verDoc["version"].(string); ok {
-			metrics = append(metrics, DBMetric{
+			metrics = append(metrics, Metric{
 				Name:  "db.instance.info",
 				Value: 1,
 				Unit:  "1",
@@ -100,7 +100,7 @@ func (m *MongoDBCollector) Collect(ctx context.Context) ([]DBMetric, error) {
 	return metrics, nil
 }
 
-func (m *MongoDBCollector) collectServerStatus(ctx context.Context) ([]DBMetric, error) {
+func (m *MongoDBCollector) collectServerStatus(ctx context.Context) ([]Metric, error) {
 	adminDB := m.client.Database("admin")
 	result := adminDB.RunCommand(ctx, bson.D{{Key: "serverStatus", Value: 1}})
 
@@ -110,15 +110,15 @@ func (m *MongoDBCollector) collectServerStatus(ctx context.Context) ([]DBMetric,
 	}
 
 	attrs := m.baseAttrs()
-	var metrics []DBMetric
+	var metrics []Metric
 
 	// connections
 	if conns, ok := doc["connections"].(bson.M); ok {
 		if v, ok := toFloat64(conns["current"]); ok {
-			metrics = append(metrics, DBMetric{Name: "db.mongodb.connections.current", Value: v, Unit: "{connections}", Attributes: attrs})
+			metrics = append(metrics, Metric{Name: "db.mongodb.connections.current", Value: v, Unit: "{connections}", Attributes: attrs})
 		}
 		if v, ok := toFloat64(conns["available"]); ok {
-			metrics = append(metrics, DBMetric{Name: "db.mongodb.connections.available", Value: v, Unit: "{connections}", Attributes: attrs})
+			metrics = append(metrics, Metric{Name: "db.mongodb.connections.available", Value: v, Unit: "{connections}", Attributes: attrs})
 		}
 	}
 
@@ -126,7 +126,7 @@ func (m *MongoDBCollector) collectServerStatus(ctx context.Context) ([]DBMetric,
 	if ops, ok := doc["opcounters"].(bson.M); ok {
 		for _, op := range []string{"query", "insert", "update", "delete"} {
 			if v, ok := toFloat64(ops[op]); ok {
-				metrics = append(metrics, DBMetric{
+				metrics = append(metrics, Metric{
 					Name:       fmt.Sprintf("db.mongodb.opcounters.%s", op),
 					Value:      v,
 					Unit:       "{operations}",
@@ -139,20 +139,20 @@ func (m *MongoDBCollector) collectServerStatus(ctx context.Context) ([]DBMetric,
 	// mem
 	if mem, ok := doc["mem"].(bson.M); ok {
 		if v, ok := toFloat64(mem["resident"]); ok {
-			metrics = append(metrics, DBMetric{Name: "db.mongodb.memory.resident_mb", Value: v, Unit: "MiBy", Attributes: attrs})
+			metrics = append(metrics, Metric{Name: "db.mongodb.memory.resident_mb", Value: v, Unit: "MiBy", Attributes: attrs})
 		}
 		if v, ok := toFloat64(mem["virtual"]); ok {
-			metrics = append(metrics, DBMetric{Name: "db.mongodb.memory.virtual_mb", Value: v, Unit: "MiBy", Attributes: attrs})
+			metrics = append(metrics, Metric{Name: "db.mongodb.memory.virtual_mb", Value: v, Unit: "MiBy", Attributes: attrs})
 		}
 	}
 
 	// network
 	if net, ok := doc["network"].(bson.M); ok {
 		if v, ok := toFloat64(net["bytesIn"]); ok {
-			metrics = append(metrics, DBMetric{Name: "db.mongodb.network.bytes_in", Value: v, Unit: "By", Attributes: attrs})
+			metrics = append(metrics, Metric{Name: "db.mongodb.network.bytes_in", Value: v, Unit: "By", Attributes: attrs})
 		}
 		if v, ok := toFloat64(net["bytesOut"]); ok {
-			metrics = append(metrics, DBMetric{Name: "db.mongodb.network.bytes_out", Value: v, Unit: "By", Attributes: attrs})
+			metrics = append(metrics, Metric{Name: "db.mongodb.network.bytes_out", Value: v, Unit: "By", Attributes: attrs})
 		}
 	}
 
@@ -160,10 +160,10 @@ func (m *MongoDBCollector) collectServerStatus(ctx context.Context) ([]DBMetric,
 	if wt, ok := doc["wiredTiger"].(bson.M); ok {
 		if cache, ok := wt["cache"].(bson.M); ok {
 			if v, ok := toFloat64(cache["bytes currently in the cache"]); ok {
-				metrics = append(metrics, DBMetric{Name: "db.mongodb.wiredtiger.cache_used_bytes", Value: v, Unit: "By", Attributes: attrs})
+				metrics = append(metrics, Metric{Name: "db.mongodb.wiredtiger.cache_used_bytes", Value: v, Unit: "By", Attributes: attrs})
 			}
 			if v, ok := toFloat64(cache["tracked dirty bytes in the cache"]); ok {
-				metrics = append(metrics, DBMetric{Name: "db.mongodb.wiredtiger.cache_dirty_bytes", Value: v, Unit: "By", Attributes: attrs})
+				metrics = append(metrics, Metric{Name: "db.mongodb.wiredtiger.cache_dirty_bytes", Value: v, Unit: "By", Attributes: attrs})
 			}
 		}
 	}
@@ -171,7 +171,7 @@ func (m *MongoDBCollector) collectServerStatus(ctx context.Context) ([]DBMetric,
 	return metrics, nil
 }
 
-func (m *MongoDBCollector) collectReplSetStatus(ctx context.Context) ([]DBMetric, error) {
+func (m *MongoDBCollector) collectReplSetStatus(ctx context.Context) ([]Metric, error) {
 	adminDB := m.client.Database("admin")
 	result := adminDB.RunCommand(ctx, bson.D{{Key: "replSetGetStatus", Value: 1}})
 
@@ -215,7 +215,7 @@ func (m *MongoDBCollector) collectReplSetStatus(ctx context.Context) ([]DBMetric
 		}
 
 		attrs := m.baseAttrs()
-		return []DBMetric{
+		return []Metric{
 			{Name: "db.mongodb.replication.lag_seconds", Value: lagSeconds, Unit: "s", Attributes: attrs},
 		}, nil
 	}

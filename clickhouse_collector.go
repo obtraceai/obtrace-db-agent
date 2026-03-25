@@ -84,8 +84,8 @@ func (c *ClickHouseCollector) baseAttrs() map[string]string {
 	}
 }
 
-func (c *ClickHouseCollector) Collect(ctx context.Context) ([]DBMetric, error) {
-	var metrics []DBMetric
+func (c *ClickHouseCollector) Collect(ctx context.Context) ([]Metric, error) {
+	var metrics []Metric
 
 	m, err := c.collectSystemMetrics(ctx)
 	if err != nil {
@@ -151,7 +151,7 @@ func (c *ClickHouseCollector) query(ctx context.Context, sql string) (*chQueryRe
 	return &result, nil
 }
 
-func (c *ClickHouseCollector) collectSystemMetrics(ctx context.Context) ([]DBMetric, error) {
+func (c *ClickHouseCollector) collectSystemMetrics(ctx context.Context) ([]Metric, error) {
 	sql := `SELECT metric, value FROM system.metrics WHERE metric IN ('Query', 'HTTPConnection', 'TCPConnection', 'MemoryTracking')`
 
 	result, err := c.query(ctx, sql)
@@ -160,7 +160,7 @@ func (c *ClickHouseCollector) collectSystemMetrics(ctx context.Context) ([]DBMet
 	}
 
 	attrs := c.baseAttrs()
-	var metrics []DBMetric
+	var metrics []Metric
 
 	nameMap := map[string]struct {
 		name string
@@ -176,7 +176,7 @@ func (c *ClickHouseCollector) collectSystemMetrics(ctx context.Context) ([]DBMet
 		metricName, _ := row["metric"].(string)
 		if mapping, ok := nameMap[metricName]; ok {
 			if val := chToFloat64(row["value"]); val != 0 || metricName != "" {
-				metrics = append(metrics, DBMetric{
+				metrics = append(metrics, Metric{
 					Name: mapping.name, Value: chToFloat64(row["value"]), Unit: mapping.unit, Attributes: attrs,
 				})
 			}
@@ -186,7 +186,7 @@ func (c *ClickHouseCollector) collectSystemMetrics(ctx context.Context) ([]DBMet
 	return metrics, nil
 }
 
-func (c *ClickHouseCollector) collectSystemEvents(ctx context.Context) ([]DBMetric, error) {
+func (c *ClickHouseCollector) collectSystemEvents(ctx context.Context) ([]Metric, error) {
 	sql := `SELECT event, value FROM system.events WHERE event IN ('Query', 'FailedQuery', 'Merge', 'InsertedRows', 'InsertedBytes', 'SelectedRows', 'SelectedBytes')`
 
 	result, err := c.query(ctx, sql)
@@ -195,7 +195,7 @@ func (c *ClickHouseCollector) collectSystemEvents(ctx context.Context) ([]DBMetr
 	}
 
 	attrs := c.baseAttrs()
-	var metrics []DBMetric
+	var metrics []Metric
 
 	nameMap := map[string]struct {
 		name string
@@ -213,7 +213,7 @@ func (c *ClickHouseCollector) collectSystemEvents(ctx context.Context) ([]DBMetr
 	for _, row := range result.Data {
 		eventName, _ := row["event"].(string)
 		if mapping, ok := nameMap[eventName]; ok {
-			metrics = append(metrics, DBMetric{
+			metrics = append(metrics, Metric{
 				Name: mapping.name, Value: chToFloat64(row["value"]), Unit: mapping.unit, Attributes: attrs,
 			})
 		}
@@ -222,7 +222,7 @@ func (c *ClickHouseCollector) collectSystemEvents(ctx context.Context) ([]DBMetr
 	return metrics, nil
 }
 
-func (c *ClickHouseCollector) collectSystemParts(ctx context.Context) ([]DBMetric, error) {
+func (c *ClickHouseCollector) collectSystemParts(ctx context.Context) ([]Metric, error) {
 	sql := `SELECT count() AS active_parts, sum(bytes_on_disk) AS total_bytes FROM system.parts WHERE active = 1`
 
 	result, err := c.query(ctx, sql)
@@ -237,7 +237,7 @@ func (c *ClickHouseCollector) collectSystemParts(ctx context.Context) ([]DBMetri
 	attrs := c.baseAttrs()
 	row := result.Data[0]
 
-	return []DBMetric{
+	return []Metric{
 		{Name: "db.clickhouse.parts.active", Value: chToFloat64(row["active_parts"]), Unit: "{parts}", Attributes: attrs},
 		{Name: "db.clickhouse.parts.total_bytes", Value: chToFloat64(row["total_bytes"]), Unit: "By", Attributes: attrs},
 	}, nil

@@ -55,13 +55,13 @@ func (p *PostgresCollector) baseAttrs() map[string]string {
 	}
 }
 
-func (p *PostgresCollector) Collect(ctx context.Context) ([]DBMetric, error) {
-	var metrics []DBMetric
+func (p *PostgresCollector) Collect(ctx context.Context) ([]Metric, error) {
+	var metrics []Metric
 
 	// Collect server version for instance metadata
 	var version string
 	_ = p.pool.QueryRow(ctx, "SHOW server_version").Scan(&version)
-	metrics = append(metrics, DBMetric{
+	metrics = append(metrics, Metric{
 		Name:  "db.instance.info",
 		Value: 1,
 		Unit:  "1",
@@ -112,7 +112,7 @@ func (p *PostgresCollector) Collect(ctx context.Context) ([]DBMetric, error) {
 	return metrics, nil
 }
 
-func (p *PostgresCollector) collectStatDatabase(ctx context.Context) ([]DBMetric, error) {
+func (p *PostgresCollector) collectStatDatabase(ctx context.Context) ([]Metric, error) {
 	query := `
 		SELECT
 			numbackends,
@@ -152,7 +152,7 @@ func (p *PostgresCollector) collectStatDatabase(ctx context.Context) ([]DBMetric
 		cacheHitRatio = float64(blksHit) / float64(blksHit+blksRead)
 	}
 
-	return []DBMetric{
+	return []Metric{
 		{Name: "db.postgres.connections.active", Value: float64(numbackends), Unit: "{connections}", Attributes: attrs},
 		{Name: "db.postgres.transactions.committed", Value: float64(xactCommit), Unit: "{transactions}", Attributes: attrs},
 		{Name: "db.postgres.transactions.rolledback", Value: float64(xactRollback), Unit: "{transactions}", Attributes: attrs},
@@ -169,7 +169,7 @@ func (p *PostgresCollector) collectStatDatabase(ctx context.Context) ([]DBMetric
 	}, nil
 }
 
-func (p *PostgresCollector) collectDatabaseSize(ctx context.Context) ([]DBMetric, error) {
+func (p *PostgresCollector) collectDatabaseSize(ctx context.Context) ([]Metric, error) {
 	var sizeBytes int64
 	err := p.pool.QueryRow(ctx, "SELECT pg_database_size($1)", p.dbName).Scan(&sizeBytes)
 	if err != nil {
@@ -177,12 +177,12 @@ func (p *PostgresCollector) collectDatabaseSize(ctx context.Context) ([]DBMetric
 	}
 
 	attrs := p.baseAttrs()
-	return []DBMetric{
+	return []Metric{
 		{Name: "db.postgres.database_size_bytes", Value: float64(sizeBytes), Unit: "By", Attributes: attrs},
 	}, nil
 }
 
-func (p *PostgresCollector) collectStatActivity(ctx context.Context) ([]DBMetric, error) {
+func (p *PostgresCollector) collectStatActivity(ctx context.Context) ([]Metric, error) {
 	query := `
 		SELECT
 			COALESCE(SUM(CASE WHEN state = 'idle' THEN 1 ELSE 0 END), 0) AS idle,
@@ -202,7 +202,7 @@ func (p *PostgresCollector) collectStatActivity(ctx context.Context) ([]DBMetric
 	}
 
 	attrs := p.baseAttrs()
-	return []DBMetric{
+	return []Metric{
 		{Name: "db.postgres.connections.idle", Value: float64(idle), Unit: "{connections}", Attributes: attrs},
 		{Name: "db.postgres.connections.active", Value: float64(active), Unit: "{connections}", Attributes: attrs},
 		{Name: "db.postgres.connections.waiting", Value: float64(waiting), Unit: "{connections}", Attributes: attrs},
@@ -210,7 +210,7 @@ func (p *PostgresCollector) collectStatActivity(ctx context.Context) ([]DBMetric
 	}, nil
 }
 
-func (p *PostgresCollector) collectUserTables(ctx context.Context) ([]DBMetric, error) {
+func (p *PostgresCollector) collectUserTables(ctx context.Context) ([]Metric, error) {
 	query := `
 		SELECT
 			schemaname || '.' || relname AS table_name,
@@ -229,7 +229,7 @@ func (p *PostgresCollector) collectUserTables(ctx context.Context) ([]DBMetric, 
 	}
 	defer rows.Close()
 
-	var metrics []DBMetric
+	var metrics []Metric
 	for rows.Next() {
 		var tableName string
 		var seqScan, idxScan, deadTup, liveTup int64
@@ -240,17 +240,17 @@ func (p *PostgresCollector) collectUserTables(ctx context.Context) ([]DBMetric, 
 		attrs["db.sql.table"] = tableName
 
 		metrics = append(metrics,
-			DBMetric{Name: "db.postgres.table.seq_scan", Value: float64(seqScan), Unit: "{scans}", Attributes: attrs},
-			DBMetric{Name: "db.postgres.table.idx_scan", Value: float64(idxScan), Unit: "{scans}", Attributes: attrs},
-			DBMetric{Name: "db.postgres.table.dead_tuples", Value: float64(deadTup), Unit: "{tuples}", Attributes: attrs},
-			DBMetric{Name: "db.postgres.table.live_tuples", Value: float64(liveTup), Unit: "{tuples}", Attributes: attrs},
+			Metric{Name: "db.postgres.table.seq_scan", Value: float64(seqScan), Unit: "{scans}", Attributes: attrs},
+			Metric{Name: "db.postgres.table.idx_scan", Value: float64(idxScan), Unit: "{scans}", Attributes: attrs},
+			Metric{Name: "db.postgres.table.dead_tuples", Value: float64(deadTup), Unit: "{tuples}", Attributes: attrs},
+			Metric{Name: "db.postgres.table.live_tuples", Value: float64(liveTup), Unit: "{tuples}", Attributes: attrs},
 		)
 	}
 
 	return metrics, nil
 }
 
-func (p *PostgresCollector) collectStatStatements(ctx context.Context) ([]DBMetric, error) {
+func (p *PostgresCollector) collectStatStatements(ctx context.Context) ([]Metric, error) {
 	// Check if pg_stat_statements is available
 	var extExists bool
 	err := p.pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements')").Scan(&extExists)
@@ -275,7 +275,7 @@ func (p *PostgresCollector) collectStatStatements(ctx context.Context) ([]DBMetr
 	}
 	defer rows.Close()
 
-	var metrics []DBMetric
+	var metrics []Metric
 	for rows.Next() {
 		var queryID, queryText string
 		var meanExecTime float64
@@ -293,8 +293,8 @@ func (p *PostgresCollector) collectStatStatements(ctx context.Context) ([]DBMetr
 		attrs["db.query_id"] = queryID
 
 		metrics = append(metrics,
-			DBMetric{Name: "db.postgres.query.avg_time_ms", Value: meanExecTime, Unit: "ms", Attributes: attrs},
-			DBMetric{Name: "db.postgres.query.calls", Value: float64(calls), Unit: "{calls}", Attributes: attrs},
+			Metric{Name: "db.postgres.query.avg_time_ms", Value: meanExecTime, Unit: "ms", Attributes: attrs},
+			Metric{Name: "db.postgres.query.calls", Value: float64(calls), Unit: "{calls}", Attributes: attrs},
 		)
 	}
 

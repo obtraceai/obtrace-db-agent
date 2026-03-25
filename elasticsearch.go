@@ -54,8 +54,8 @@ func (e *ElasticsearchCollector) baseAttrs() map[string]string {
 	}
 }
 
-func (e *ElasticsearchCollector) Collect(ctx context.Context) ([]DBMetric, error) {
-	var metrics []DBMetric
+func (e *ElasticsearchCollector) Collect(ctx context.Context) ([]Metric, error) {
+	var metrics []Metric
 
 	m, err := e.collectClusterHealth(ctx)
 	if err != nil {
@@ -95,7 +95,7 @@ func (e *ElasticsearchCollector) doGet(ctx context.Context, path string) ([]byte
 	return io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
 }
 
-func (e *ElasticsearchCollector) collectClusterHealth(ctx context.Context) ([]DBMetric, error) {
+func (e *ElasticsearchCollector) collectClusterHealth(ctx context.Context) ([]Metric, error) {
 	body, err := e.doGet(ctx, "/_cluster/health")
 	if err != nil {
 		return nil, err
@@ -126,7 +126,7 @@ func (e *ElasticsearchCollector) collectClusterHealth(ctx context.Context) ([]DB
 		statusVal = -1
 	}
 
-	return []DBMetric{
+	return []Metric{
 		{Name: "db.elasticsearch.cluster.status", Value: statusVal, Unit: "1", Attributes: attrs},
 		{Name: "db.elasticsearch.cluster.nodes", Value: health.NumberOfNodes, Unit: "{nodes}", Attributes: attrs},
 		{Name: "db.elasticsearch.cluster.shards.active", Value: health.ActiveShards, Unit: "{shards}", Attributes: attrs},
@@ -134,7 +134,7 @@ func (e *ElasticsearchCollector) collectClusterHealth(ctx context.Context) ([]DB
 	}, nil
 }
 
-func (e *ElasticsearchCollector) collectNodeStats(ctx context.Context) ([]DBMetric, error) {
+func (e *ElasticsearchCollector) collectNodeStats(ctx context.Context) ([]Metric, error) {
 	body, err := e.doGet(ctx, "/_nodes/stats")
 	if err != nil {
 		return nil, err
@@ -196,7 +196,7 @@ func (e *ElasticsearchCollector) collectNodeStats(ctx context.Context) ([]DBMetr
 	}
 
 	attrs := e.baseAttrs()
-	metrics := []DBMetric{
+	metrics := []Metric{
 		{Name: "db.elasticsearch.jvm.heap_used_bytes", Value: totalHeapUsed, Unit: "By", Attributes: attrs},
 		{Name: "db.elasticsearch.jvm.heap_max_bytes", Value: totalHeapMax, Unit: "By", Attributes: attrs},
 		{Name: "db.elasticsearch.indices.docs_count", Value: totalDocsCount, Unit: "{documents}", Attributes: attrs},
@@ -210,7 +210,7 @@ func (e *ElasticsearchCollector) collectNodeStats(ctx context.Context) ([]DBMetr
 	// Compute average search latency
 	if totalSearchRate > 0 {
 		avgLatency := totalSearchTime / totalSearchRate
-		metrics = append(metrics, DBMetric{
+		metrics = append(metrics, Metric{
 			Name: "db.elasticsearch.indices.search_latency_ms", Value: avgLatency, Unit: "ms", Attributes: attrs,
 		})
 	}

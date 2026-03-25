@@ -53,9 +53,9 @@ func (s *SQLiteCollector) baseAttrs() map[string]string {
 	}
 }
 
-func (s *SQLiteCollector) Collect(ctx context.Context) ([]DBMetric, error) {
+func (s *SQLiteCollector) Collect(ctx context.Context) ([]Metric, error) {
 	attrs := s.baseAttrs()
-	var metrics []DBMetric
+	var metrics []Metric
 
 	// Page count
 	var pageCount int64
@@ -72,12 +72,12 @@ func (s *SQLiteCollector) Collect(ctx context.Context) ([]DBMetric, error) {
 	// Database size
 	if pageCount > 0 && pageSize > 0 {
 		dbSize := float64(pageCount) * float64(pageSize)
-		metrics = append(metrics, DBMetric{
+		metrics = append(metrics, Metric{
 			Name: "db.sqlite.database_size_bytes", Value: dbSize, Unit: "By", Attributes: attrs,
 		})
 	}
 
-	metrics = append(metrics, DBMetric{
+	metrics = append(metrics, Metric{
 		Name: "db.sqlite.page_size", Value: float64(pageSize), Unit: "By", Attributes: attrs,
 	})
 
@@ -91,7 +91,7 @@ func (s *SQLiteCollector) Collect(ctx context.Context) ([]DBMetric, error) {
 			// Negative means size in KiB; convert to approximate page count
 			cacheSize = (-cacheSize * 1024) / pageSize
 		}
-		metrics = append(metrics, DBMetric{
+		metrics = append(metrics, Metric{
 			Name: "db.sqlite.cache_size_pages", Value: float64(cacheSize), Unit: "{pages}", Attributes: attrs,
 		})
 	}
@@ -107,7 +107,7 @@ func (s *SQLiteCollector) Collect(ctx context.Context) ([]DBMetric, error) {
 		// Not in WAL mode or WAL not available; this is expected for journal mode
 		log.Printf("DEBUG: sqlite %s PRAGMA wal_checkpoint: %v", s.name, err)
 	} else {
-		metrics = append(metrics, DBMetric{
+		metrics = append(metrics, Metric{
 			Name: "db.sqlite.wal_checkpoint_count", Value: float64(checkpointed), Unit: "{checkpoints}", Attributes: attrs,
 		})
 	}

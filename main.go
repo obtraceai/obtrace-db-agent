@@ -9,7 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
-	"sync"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -28,10 +28,11 @@ func main() {
 		log.Fatal("OBTRACE_API_KEY is required")
 	}
 
-	appID := envOr("OBTRACE_APP_ID", "db-agent")
+	appID := envOr("OBTRACE_APP_ID", "infra-agent")
 	env := envOr("OBTRACE_ENV", "prod")
 	tenantID := os.Getenv("OBTRACE_TENANT_ID")
 	projectID := os.Getenv("OBTRACE_PROJECT_ID")
+	healthPort := envOr("HEALTH_PORT", "9090")
 
 	intervalMS, _ := strconv.Atoi(envOr("COLLECT_INTERVAL_MS", "15000"))
 	if intervalMS < 1000 {
@@ -39,24 +40,35 @@ func main() {
 	}
 	interval := time.Duration(intervalMS) * time.Millisecond
 
-	connJSON := os.Getenv("DB_CONNECTIONS")
+	connJSON := os.Getenv("INFRA_CONNECTIONS")
 	if connJSON == "" {
-		log.Fatal("DB_CONNECTIONS is required (JSON array of connection configs)")
+		connJSON = os.Getenv("DB_CONNECTIONS")
+	}
+	if connJSON == "" {
+		log.Fatal("INFRA_CONNECTIONS is required (JSON array of connection configs)")
 	}
 
 	var conns []ConnectionConfig
 	if err := json.Unmarshal([]byte(connJSON), &conns); err != nil {
-		log.Fatalf("failed to parse DB_CONNECTIONS: %v", err)
+		log.Fatalf("failed to parse INFRA_CONNECTIONS: %v", err)
 	}
 	if len(conns) == 0 {
-		log.Fatal("DB_CONNECTIONS must contain at least one connection")
+		log.Fatal("INFRA_CONNECTIONS must contain at least one connection")
+	}
+
+	hostMetrics := envOr("HOST_METRICS", "")
+	if hostMetrics == "true" || hostMetrics == "1" {
+		conns = append(conns, ConnectionConfig{
+			Type: "host",
+			Name: envOr("HOST_METRICS_NAME", "host"),
+		})
 	}
 
 	cloudProvider := envOr("CLOUD_PROVIDER", "")
 	cloudRegion := envOr("CLOUD_REGION", "")
 
 	resourceAttrs := map[string]string{
-		"service.name":    appID,
+		"service.name":           appID,
 		"deployment.environment": env,
 	}
 	if tenantID != "" {
@@ -72,7 +84,6 @@ func main() {
 		resourceAttrs["cloud.region"] = cloudRegion
 	}
 
-	// Build collectors
 	var collectors []Collector
 	for _, c := range conns {
 		col, err := newCollector(c)
@@ -88,10 +99,15 @@ func main() {
 		log.Fatal("no collectors could be initialized")
 	}
 
+	orchestrator := NewResilientOrchestrator(collectors)
+
+	health := NewHealthServer(orchestrator, healthPort)
+	health.Start()
+	log.Printf("INFO: health endpoint on :%s/health", healthPort)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Handle shutdown signals
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
@@ -100,68 +116,68 @@ func main() {
 		cancel()
 	}()
 
-	log.Printf("INFO: starting obtrace-db-agent (interval=%s, targets=%d, ingest=%s)", interval, len(collectors), ingestURL)
+	log.Printf("INFO: starting obtrace-infra-agent (interval=%s, targets=%d, ingest=%s)", interval, len(collectors), ingestURL)
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	// Collect immediately on start, then on each tick
-	collectAndSend(ctx, collectors, ingestURL, apiKey, resourceAttrs)
+	collectAndSend(ctx, orchestrator, health, ingestURL, apiKey, resourceAttrs)
 	for {
 		select {
 		case <-ctx.Done():
 			log.Println("INFO: shutting down collectors")
-			for _, c := range collectors {
-				if err := c.Close(); err != nil {
-					log.Printf("WARN: error closing collector %s: %v", c.Type(), err)
-				}
-			}
+			orchestrator.Close()
 			log.Println("INFO: shutdown complete")
 			return
 		case <-ticker.C:
-			collectAndSend(ctx, collectors, ingestURL, apiKey, resourceAttrs)
+			collectAndSend(ctx, orchestrator, health, ingestURL, apiKey, resourceAttrs)
 		}
 	}
 }
 
-func collectAndSend(ctx context.Context, collectors []Collector, ingestURL, apiKey string, resourceAttrs map[string]string) {
-	collectCtx, collectCancel := context.WithTimeout(ctx, 10*time.Second)
-	defer collectCancel()
+func collectAndSend(ctx context.Context, orch *ResilientOrchestrator, health *HealthServer, ingestURL, apiKey string, resourceAttrs map[string]string) {
+	allMetrics := orch.CollectAll(ctx)
 
-	var allMetrics []DBMetric
-	var mu sync.Mutex
-	var wg sync.WaitGroup
+	allMetrics = append(allMetrics, Metric{
+		Name:  "agent.up",
+		Value: 1,
+		Unit:  "1",
+		Attributes: map[string]string{
+			"agent.type":    "infra-agent",
+			"agent.version": "2.0.0",
+		},
+	})
 
-	for _, c := range collectors {
-		wg.Add(1)
-		go func(col Collector) {
-			defer wg.Done()
-			metrics, err := col.Collect(collectCtx)
-			if err != nil {
-				log.Printf("WARN: collector %s failed: %v", col.Type(), err)
-				return
-			}
-			mu.Lock()
-			allMetrics = append(allMetrics, metrics...)
-			mu.Unlock()
-		}(c)
+	statuses := orch.Status()
+	for _, s := range statuses {
+		val := 1.0
+		if s.Status == "open" {
+			val = 0
+		} else if s.Status == "degraded" {
+			val = 0.5
+		}
+		allMetrics = append(allMetrics, Metric{
+			Name:  "agent.collector.health",
+			Value: val,
+			Unit:  "1",
+			Attributes: map[string]string{
+				"agent.collector.type":   s.Type,
+				"agent.collector.status": s.Status,
+			},
+		})
 	}
-	wg.Wait()
 
-	if len(allMetrics) == 0 {
-		log.Println("WARN: no metrics collected this cycle")
-		return
-	}
+	err := sendMetricsWithRetry(ctx, ingestURL, apiKey, resourceAttrs, allMetrics, 3)
+	health.RecordSend(err)
 
-	if err := sendMetrics(ctx, ingestURL, apiKey, resourceAttrs, allMetrics); err != nil {
-		log.Printf("ERROR: failed to send metrics: %v", err)
+	if err != nil {
+		log.Printf("ERROR: failed to send %d metrics after retries: %v", len(allMetrics), err)
 	} else {
 		log.Printf("INFO: sent %d metrics", len(allMetrics))
 	}
 }
 
 func newCollector(cfg ConnectionConfig) (Collector, error) {
-	// Extract host:port from DSN for db.instance attribute
 	instance := extractInstance(cfg.DSN, cfg.Type)
 
 	switch cfg.Type {
@@ -183,22 +199,55 @@ func newCollector(cfg ConnectionConfig) (Collector, error) {
 		return NewCockroachDBCollector(cfg.DSN, cfg.Name, instance)
 	case "sqlite":
 		return NewSQLiteCollector(cfg.DSN, cfg.Name, instance)
+	case "kafka":
+		return NewKafkaCollector(cfg.DSN, cfg.Name, instance)
+	case "rabbitmq":
+		return NewRabbitMQCollector(cfg.DSN, cfg.Name, instance)
+	case "nats":
+		return NewNATSCollector(cfg.DSN, cfg.Name, instance)
+	case "bullmq":
+		return NewBullMQCollector(cfg.DSN, cfg.Name, instance)
+	case "sidekiq":
+		return NewSidekiqCollector(cfg.DSN, cfg.Name, instance)
+	case "celery":
+		return NewCeleryCollector(cfg.DSN, cfg.Name, instance)
+	case "ibmmq":
+		return NewIBMMQCollector(cfg.DSN, cfg.Name, instance)
+	case "activemq", "artemis":
+		return NewActiveMQCollector(cfg.DSN, cfg.Name, instance)
+	case "sqs":
+		return NewSQSCollector(cfg.DSN, cfg.Name, instance)
+	case "beanstalkd":
+		return NewBeanstalkdCollector(cfg.DSN, cfg.Name, instance)
+	case "host":
+		return NewHostCollector(cfg.Name)
 	default:
-		return nil, fmt.Errorf("unsupported database type: %s", cfg.Type)
+		return nil, fmt.Errorf("unsupported type: %s", cfg.Type)
 	}
 }
 
 func extractInstance(dsn, dbType string) string {
 	switch dbType {
-	case "postgres", "mongodb", "redis":
+	case "postgres", "mongodb", "redis", "bullmq", "sidekiq", "celery":
 		u, err := url.Parse(dsn)
 		if err != nil {
 			return "unknown"
 		}
 		return u.Host
+	case "kafka":
+		return strings.Split(dsn, ",")[0]
+	case "beanstalkd":
+		return dsn
+	case "sqs":
+		if strings.HasPrefix(dsn, "http") {
+			u, err := url.Parse(dsn)
+			if err != nil {
+				return dsn
+			}
+			return u.Host
+		}
+		return dsn
 	case "mysql":
-		// format: user:pass@tcp(host:port)/db
-		// try to extract host:port
 		for i := 0; i < len(dsn); i++ {
 			if dsn[i] == '(' {
 				end := i + 1
@@ -211,7 +260,7 @@ func extractInstance(dsn, dbType string) string {
 			}
 		}
 		return "unknown"
-	case "cassandra", "elasticsearch", "clickhouse", "cockroachdb":
+	case "cassandra", "elasticsearch", "clickhouse", "cockroachdb", "rabbitmq", "nats", "ibmmq", "activemq", "artemis":
 		u, err := url.Parse(dsn)
 		if err != nil {
 			return "unknown"
@@ -219,6 +268,8 @@ func extractInstance(dsn, dbType string) string {
 		return u.Host
 	case "sqlite":
 		return dsn
+	case "host":
+		return "localhost"
 	default:
 		return "unknown"
 	}

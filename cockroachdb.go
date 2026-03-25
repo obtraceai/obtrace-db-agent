@@ -54,7 +54,7 @@ func (c *CockroachDBCollector) baseAttrs() map[string]string {
 	}
 }
 
-func (c *CockroachDBCollector) Collect(ctx context.Context) ([]DBMetric, error) {
+func (c *CockroachDBCollector) Collect(ctx context.Context) ([]Metric, error) {
 	url := c.endpoint + "/_status/vars"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -79,7 +79,7 @@ func (c *CockroachDBCollector) Collect(ctx context.Context) ([]DBMetric, error) 
 
 	promMetrics := parseCRDBPrometheus(string(body))
 	attrs := c.baseAttrs()
-	var metrics []DBMetric
+	var metrics []Metric
 
 	type metricMapping struct {
 		promName string
@@ -100,7 +100,7 @@ func (c *CockroachDBCollector) Collect(ctx context.Context) ([]DBMetric, error) 
 
 	for _, m := range mappings {
 		if val, ok := promMetrics[m.promName]; ok {
-			metrics = append(metrics, DBMetric{
+			metrics = append(metrics, Metric{
 				Name: m.name, Value: val, Unit: m.unit, Attributes: attrs,
 			})
 		} else {

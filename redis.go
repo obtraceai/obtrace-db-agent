@@ -53,15 +53,15 @@ func (r *RedisCollector) baseAttrs() map[string]string {
 	}
 }
 
-func (r *RedisCollector) Collect(ctx context.Context) ([]DBMetric, error) {
-	var metrics []DBMetric
+func (r *RedisCollector) Collect(ctx context.Context) ([]Metric, error) {
+	var metrics []Metric
 
 	// Collect server version for instance metadata
 	serverInfo, verErr := r.client.Info(ctx, "server").Result()
 	if verErr == nil {
 		parsed := parseRedisInfo(serverInfo)
 		version := parsed["redis_version"]
-		metrics = append(metrics, DBMetric{
+		metrics = append(metrics, Metric{
 			Name:  "db.instance.info",
 			Value: 1,
 			Unit:  "1",
@@ -91,7 +91,7 @@ func (r *RedisCollector) Collect(ctx context.Context) ([]DBMetric, error) {
 	return metrics, nil
 }
 
-func (r *RedisCollector) collectInfo(ctx context.Context) ([]DBMetric, error) {
+func (r *RedisCollector) collectInfo(ctx context.Context) ([]Metric, error) {
 	info, err := r.client.Info(ctx, "all").Result()
 	if err != nil {
 		return nil, fmt.Errorf("INFO command: %w", err)
@@ -100,12 +100,12 @@ func (r *RedisCollector) collectInfo(ctx context.Context) ([]DBMetric, error) {
 	parsed := parseRedisInfo(info)
 	attrs := r.baseAttrs()
 
-	var metrics []DBMetric
+	var metrics []Metric
 
 	addGauge := func(name, key, unit string) {
 		if v, ok := parsed[key]; ok {
 			if f, err := strconv.ParseFloat(v, 64); err == nil {
-				metrics = append(metrics, DBMetric{Name: name, Value: f, Unit: unit, Attributes: attrs})
+				metrics = append(metrics, Metric{Name: name, Value: f, Unit: unit, Attributes: attrs})
 			}
 		}
 	}
@@ -127,7 +127,7 @@ func (r *RedisCollector) collectInfo(ctx context.Context) ([]DBMetric, error) {
 	misses, missesOK := parseFloat(parsed, "keyspace_misses")
 	if hitsOK && missesOK && (hits+misses) > 0 {
 		ratio := hits / (hits + misses)
-		metrics = append(metrics, DBMetric{Name: "db.redis.keyspace.hit_ratio", Value: ratio, Unit: "1", Attributes: attrs})
+		metrics = append(metrics, Metric{Name: "db.redis.keyspace.hit_ratio", Value: ratio, Unit: "1", Attributes: attrs})
 	}
 
 	// Replication lag (if replica)
@@ -137,23 +137,23 @@ func (r *RedisCollector) collectInfo(ctx context.Context) ([]DBMetric, error) {
 		slaveOffset, sOK := parseFloat(parsed, "slave_repl_offset")
 		if mOK && sOK {
 			lag := masterOffset - slaveOffset
-			metrics = append(metrics, DBMetric{Name: "db.redis.replication.lag", Value: lag, Unit: "{bytes}", Attributes: attrs})
+			metrics = append(metrics, Metric{Name: "db.redis.replication.lag", Value: lag, Unit: "{bytes}", Attributes: attrs})
 		}
 	}
 
 	return metrics, nil
 }
 
-func (r *RedisCollector) collectSlowlog(ctx context.Context) ([]DBMetric, error) {
+func (r *RedisCollector) collectSlowlog(ctx context.Context) ([]Metric, error) {
 	entries, err := r.client.SlowLogGet(ctx, 10).Result()
 	if err != nil {
 		return nil, fmt.Errorf("SLOWLOG GET: %w", err)
 	}
 
 	attrs := r.baseAttrs()
-	var metrics []DBMetric
+	var metrics []Metric
 
-	metrics = append(metrics, DBMetric{
+	metrics = append(metrics, Metric{
 		Name:       "db.redis.slowlog.count",
 		Value:      float64(len(entries)),
 		Unit:       "{entries}",
@@ -162,7 +162,7 @@ func (r *RedisCollector) collectSlowlog(ctx context.Context) ([]DBMetric, error)
 
 	if len(entries) > 0 {
 		// entries[0] is the latest
-		metrics = append(metrics, DBMetric{
+		metrics = append(metrics, Metric{
 			Name:       "db.redis.slowlog.latest_duration_us",
 			Value:      float64(entries[0].Duration.Microseconds()),
 			Unit:       "us",

@@ -51,13 +51,13 @@ func (m *MySQLCollector) baseAttrs() map[string]string {
 	}
 }
 
-func (m *MySQLCollector) Collect(ctx context.Context) ([]DBMetric, error) {
-	var allMetrics []DBMetric
+func (m *MySQLCollector) Collect(ctx context.Context) ([]Metric, error) {
+	var allMetrics []Metric
 
 	// Collect server version for instance metadata
 	var version string
 	if err := m.db.QueryRowContext(ctx, "SELECT VERSION()").Scan(&version); err == nil {
-		allMetrics = append(allMetrics, DBMetric{
+		allMetrics = append(allMetrics, Metric{
 			Name:  "db.instance.info",
 			Value: 1,
 			Unit:  "1",
@@ -79,7 +79,7 @@ func (m *MySQLCollector) Collect(ctx context.Context) ([]DBMetric, error) {
 	return allMetrics, nil
 }
 
-func (m *MySQLCollector) collectGlobalStatus(ctx context.Context) ([]DBMetric, error) {
+func (m *MySQLCollector) collectGlobalStatus(ctx context.Context) ([]Metric, error) {
 	rows, err := m.db.QueryContext(ctx, "SHOW GLOBAL STATUS")
 	if err != nil {
 		return nil, fmt.Errorf("SHOW GLOBAL STATUS: %w", err)
@@ -99,12 +99,12 @@ func (m *MySQLCollector) collectGlobalStatus(ctx context.Context) ([]DBMetric, e
 	}
 
 	attrs := m.baseAttrs()
-	var metrics []DBMetric
+	var metrics []Metric
 
 	addGauge := func(metricName, statusKey, unit string) {
 		if v, ok := status[statusKey]; ok {
 			if f, err := strconv.ParseFloat(v, 64); err == nil {
-				metrics = append(metrics, DBMetric{Name: metricName, Value: f, Unit: unit, Attributes: attrs})
+				metrics = append(metrics, Metric{Name: metricName, Value: f, Unit: unit, Attributes: attrs})
 			}
 		}
 	}
@@ -125,7 +125,7 @@ func (m *MySQLCollector) collectGlobalStatus(ctx context.Context) ([]DBMetric, e
 	reads, dOK := parseStatusFloat(status, "Innodb_buffer_pool_reads")
 	if rOK && dOK && readRequests > 0 {
 		hitRatio := (readRequests - reads) / readRequests
-		metrics = append(metrics, DBMetric{
+		metrics = append(metrics, Metric{
 			Name:       "db.mysql.innodb.buffer_pool_hit_ratio",
 			Value:      hitRatio,
 			Unit:       "1",

@@ -61,7 +61,7 @@ func (c *CassandraCollector) baseAttrs() map[string]string {
 	}
 }
 
-func (c *CassandraCollector) Collect(ctx context.Context) ([]DBMetric, error) {
+func (c *CassandraCollector) Collect(ctx context.Context) ([]Metric, error) {
 	if c.mode == "prometheus" {
 		return c.collectPrometheus(ctx)
 	}
@@ -69,9 +69,9 @@ func (c *CassandraCollector) Collect(ctx context.Context) ([]DBMetric, error) {
 }
 
 // collectJolokia queries the Jolokia JMX HTTP endpoint for Cassandra metrics.
-func (c *CassandraCollector) collectJolokia(ctx context.Context) ([]DBMetric, error) {
+func (c *CassandraCollector) collectJolokia(ctx context.Context) ([]Metric, error) {
 	attrs := c.baseAttrs()
-	var metrics []DBMetric
+	var metrics []Metric
 
 	// Read latency
 	val, err := c.queryJolokiaMBean(ctx,
@@ -81,7 +81,7 @@ func (c *CassandraCollector) collectJolokia(ctx context.Context) ([]DBMetric, er
 		log.Printf("WARN: cassandra %s read latency: %v", c.name, err)
 	} else {
 		// Jolokia returns latency in microseconds; convert to ms
-		metrics = append(metrics, DBMetric{
+		metrics = append(metrics, Metric{
 			Name: "db.cassandra.read_latency_ms", Value: val / 1000.0, Unit: "ms", Attributes: attrs,
 		})
 	}
@@ -93,7 +93,7 @@ func (c *CassandraCollector) collectJolokia(ctx context.Context) ([]DBMetric, er
 	if err != nil {
 		log.Printf("WARN: cassandra %s write latency: %v", c.name, err)
 	} else {
-		metrics = append(metrics, DBMetric{
+		metrics = append(metrics, Metric{
 			Name: "db.cassandra.write_latency_ms", Value: val / 1000.0, Unit: "ms", Attributes: attrs,
 		})
 	}
@@ -105,7 +105,7 @@ func (c *CassandraCollector) collectJolokia(ctx context.Context) ([]DBMetric, er
 	if err != nil {
 		log.Printf("WARN: cassandra %s pending compactions: %v", c.name, err)
 	} else {
-		metrics = append(metrics, DBMetric{
+		metrics = append(metrics, Metric{
 			Name: "db.cassandra.compactions_pending", Value: val, Unit: "{compactions}", Attributes: attrs,
 		})
 	}
@@ -117,7 +117,7 @@ func (c *CassandraCollector) collectJolokia(ctx context.Context) ([]DBMetric, er
 	if err != nil {
 		log.Printf("WARN: cassandra %s tombstones: %v", c.name, err)
 	} else {
-		metrics = append(metrics, DBMetric{
+		metrics = append(metrics, Metric{
 			Name: "db.cassandra.tombstones_scanned", Value: val, Unit: "{tombstones}", Attributes: attrs,
 		})
 	}
@@ -129,7 +129,7 @@ func (c *CassandraCollector) collectJolokia(ctx context.Context) ([]DBMetric, er
 	if err != nil {
 		log.Printf("WARN: cassandra %s connections: %v", c.name, err)
 	} else {
-		metrics = append(metrics, DBMetric{
+		metrics = append(metrics, Metric{
 			Name: "db.cassandra.connections.active", Value: val, Unit: "{connections}", Attributes: attrs,
 		})
 	}
@@ -141,7 +141,7 @@ func (c *CassandraCollector) collectJolokia(ctx context.Context) ([]DBMetric, er
 	if err != nil {
 		log.Printf("WARN: cassandra %s storage load: %v", c.name, err)
 	} else {
-		metrics = append(metrics, DBMetric{
+		metrics = append(metrics, Metric{
 			Name: "db.cassandra.storage.total_bytes", Value: val, Unit: "By", Attributes: attrs,
 		})
 	}
@@ -153,7 +153,7 @@ func (c *CassandraCollector) collectJolokia(ctx context.Context) ([]DBMetric, er
 	if err != nil {
 		log.Printf("WARN: cassandra %s live disk space: %v", c.name, err)
 	} else {
-		metrics = append(metrics, DBMetric{
+		metrics = append(metrics, Metric{
 			Name: "db.cassandra.storage.live_bytes", Value: val, Unit: "By", Attributes: attrs,
 		})
 	}
@@ -204,7 +204,7 @@ func (c *CassandraCollector) queryJolokiaMBean(ctx context.Context, mbean, attri
 
 // collectPrometheus scrapes the Prometheus-format metrics endpoint and extracts
 // Cassandra-specific metrics.
-func (c *CassandraCollector) collectPrometheus(ctx context.Context) ([]DBMetric, error) {
+func (c *CassandraCollector) collectPrometheus(ctx context.Context) ([]Metric, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -227,7 +227,7 @@ func (c *CassandraCollector) collectPrometheus(ctx context.Context) ([]DBMetric,
 
 	promMetrics := parsePrometheusText(string(body))
 	attrs := c.baseAttrs()
-	var metrics []DBMetric
+	var metrics []Metric
 
 	// Map Prometheus metric names to our metric names
 	mappings := map[string]struct {
@@ -247,7 +247,7 @@ func (c *CassandraCollector) collectPrometheus(ctx context.Context) ([]DBMetric,
 
 	for promName, mapping := range mappings {
 		if val, ok := promMetrics[promName]; ok {
-			metrics = append(metrics, DBMetric{
+			metrics = append(metrics, Metric{
 				Name:       mapping.name,
 				Value:      val * mapping.conv,
 				Unit:       mapping.unit,

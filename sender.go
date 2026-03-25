@@ -6,12 +6,36 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"time"
 )
 
-// sendMetrics builds an OTLP JSON metrics payload and POSTs it to the ingest-edge.
-func sendMetrics(ctx context.Context, ingestURL, apiKey string, resourceAttrs map[string]string, metrics []DBMetric) error {
+func sendMetricsWithRetry(ctx context.Context, ingestURL, apiKey string, resourceAttrs map[string]string, metrics []Metric, maxRetries int) error {
+	var lastErr error
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			backoff := time.Duration(attempt) * time.Second
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(backoff):
+			}
+			log.Printf("INFO: retrying send (attempt %d/%d)", attempt+1, maxRetries+1)
+		}
+
+		err := sendMetrics(ctx, ingestURL, apiKey, resourceAttrs, metrics)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+	}
+
+	return lastErr
+}
+
+func sendMetrics(ctx context.Context, ingestURL, apiKey string, resourceAttrs map[string]string, metrics []Metric) error {
 	payload := buildOTLPMetricsPayload(resourceAttrs, metrics)
 
 	body, err := json.Marshal(payload)
@@ -35,6 +59,11 @@ func sendMetrics(ctx context.Context, ingestURL, apiKey string, resourceAttrs ma
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode >= 500 {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return fmt.Errorf("POST %s returned %d: %s (retryable)", url, resp.StatusCode, string(respBody))
+	}
+
 	if resp.StatusCode >= 300 {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		return fmt.Errorf("POST %s returned %d: %s", url, resp.StatusCode, string(respBody))
@@ -43,9 +72,7 @@ func sendMetrics(ctx context.Context, ingestURL, apiKey string, resourceAttrs ma
 	return nil
 }
 
-// buildOTLPMetricsPayload constructs the OTLP JSON structure for metrics.
-func buildOTLPMetricsPayload(resourceAttrs map[string]string, metrics []DBMetric) map[string]interface{} {
-	// Build resource attributes
+func buildOTLPMetricsPayload(resourceAttrs map[string]string, metrics []Metric) map[string]interface{} {
 	var resAttrs []map[string]interface{}
 	for k, v := range resourceAttrs {
 		resAttrs = append(resAttrs, map[string]interface{}{
@@ -55,15 +82,14 @@ func buildOTLPMetricsPayload(resourceAttrs map[string]string, metrics []DBMetric
 	}
 
 	nowNanos := time.Now().UnixNano()
-
-	// Group metrics by their attributes (so metrics from the same source share a scope)
-	type scopeKey struct{}
 	var otlpMetrics []map[string]interface{}
 
 	for _, m := range metrics {
-		// Build metric attributes
 		var mAttrs []map[string]interface{}
 		for k, v := range m.Attributes {
+			if len(v) > 256 {
+				v = v[:256]
+			}
 			mAttrs = append(mAttrs, map[string]interface{}{
 				"key":   k,
 				"value": map[string]interface{}{"stringValue": v},
@@ -96,8 +122,8 @@ func buildOTLPMetricsPayload(resourceAttrs map[string]string, metrics []DBMetric
 				"scopeMetrics": []map[string]interface{}{
 					{
 						"scope": map[string]interface{}{
-							"name":    "obtrace-db-agent",
-							"version": "1.0.0",
+							"name":    "obtrace-infra-agent",
+							"version": "2.0.0",
 						},
 						"metrics": otlpMetrics,
 					},
