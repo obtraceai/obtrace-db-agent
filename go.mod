@@ -3,7 +3,7 @@ module github.com/obtrace/infra-agent
 go 1.26.0
 
 require (
-	github.com/aws/aws-sdk-go-v2 v1.41.4
+	github.com/aws/aws-sdk-go-v2 v1.41.5
 	github.com/aws/aws-sdk-go-v2/config v1.32.12
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.42.24
 	github.com/go-sql-driver/mysql v1.8.1
