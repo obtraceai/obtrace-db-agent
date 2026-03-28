@@ -3,16 +3,59 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
 
 permissions:
   contents: write
   packages: write
 
 jobs:
+  auto-tag:
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
+    runs-on: obtrace-runners
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      created: ${{ steps.tag.outputs.created }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: tag
+        run: |
+          LATEST=$(git tag --sort=-v:refname | head -1)
+          if [ -z "$LATEST" ]; then
+            NEXT="v1.0.0"
+          else
+            MAJOR=$(echo "$LATEST" | sed 's/v//' | cut -d. -f1)
+            MINOR=$(echo "$LATEST" | sed 's/v//' | cut -d. -f2)
+            PATCH=$(echo "$LATEST" | sed 's/v//' | cut -d. -f3)
+            NEXT="v${MAJOR}.${MINOR}.$((PATCH+1))"
+          fi
+          if [ "$(git rev-parse "$LATEST" 2>/dev/null)" = "$(git rev-parse HEAD)" ]; then
+            echo "created=false" >> "$GITHUB_OUTPUT"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag "$NEXT"
+            git push origin "$NEXT"
+            echo "tag=$NEXT" >> "$GITHUB_OUTPUT"
+            echo "created=true" >> "$GITHUB_OUTPUT"
+          fi
+
   release:
+    if: >-
+      always() &&
+      ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+      (needs.auto-tag.result == 'success' && needs.auto-tag.outputs.created == 'true'))
+    needs: [auto-tag]
     runs-on: obtrace-runners
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.auto-tag.outputs.tag || github.ref_name }}
 
       - uses: actions/setup-go@v6
         with:
@@ -38,9 +81,9 @@ jobs:
           push: true
           tags: |
             ghcr.io/obtraceai/db-agent:latest
-            ghcr.io/obtraceai/db-agent:${{ github.ref_name }}
+            ghcr.io/obtraceai/db-agent:${{ needs.auto-tag.outputs.tag || github.ref_name }}
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create "$GITHUB_REF_NAME" --generate-notes
+        run: gh release create "${{ needs.auto-tag.outputs.tag || github.ref_name }}" --generate-notes
