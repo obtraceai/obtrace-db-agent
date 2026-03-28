@@ -57,6 +57,13 @@ jobs:
         with:
           ref: ${{ needs.auto-tag.outputs.tag || github.ref_name }}
 
+      - name: Set version
+        id: version
+        run: |
+          TAG="${{ needs.auto-tag.outputs.tag || github.ref_name }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -81,9 +88,14 @@ jobs:
           push: true
           tags: |
             ghcr.io/obtraceai/db-agent:latest
-            ghcr.io/obtraceai/db-agent:${{ needs.auto-tag.outputs.tag || github.ref_name }}
+            ghcr.io/obtraceai/db-agent:${{ steps.version.outputs.tag }}
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create "${{ needs.auto-tag.outputs.tag || github.ref_name }}" --generate-notes
+        run: |
+          curl -s -X POST \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/obtraceai/obtrace-db-agent/releases" \
+            -d "{\"tag_name\":\"${{ steps.version.outputs.tag }}\",\"generate_release_notes\":true}"
