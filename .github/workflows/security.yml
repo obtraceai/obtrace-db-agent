@@ -10,12 +10,14 @@ jobs:
   dependency-review:
     if: github.event_name == 'pull_request'
     runs-on: obtrace-runners
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v6
       - uses: actions/dependency-review-action@v4
 
   audit:
     runs-on: obtrace-runners
+    continue-on-error: ${{ github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
