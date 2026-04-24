@@ -9,7 +9,7 @@ require (
 	github.com/go-sql-driver/mysql v1.8.1
 	github.com/jackc/pgx/v5 v5.9.1
 	github.com/redis/go-redis/v9 v9.7.0
-	github.com/segmentio/kafka-go v0.4.50
+	github.com/segmentio/kafka-go v0.4.51
 	go.mongodb.org/mongo-driver v1.17.9
 	modernc.org/sqlite v1.34.5
 )
